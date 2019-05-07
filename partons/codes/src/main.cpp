@@ -3,13 +3,9 @@
 #include <ElementaryUtils/parameters/Parameter.h>
 #include <ElementaryUtils/string_utils/Formatter.h>
 #include <partons/beans/convol_coeff_function/DVCS/DVCSConvolCoeffFunctionKinematic.h>
-#include <partons/beans/convol_coeff_function/DVCS/DVCSConvolCoeffFunctionResult.h>
 #include <partons/beans/gpd/GPDKinematic.h>
-#include <partons/beans/gpd/GPDResult.h>
 #include <partons/beans/gpd/GPDType.h>
-#include <partons/beans/List.h>
 #include <partons/beans/observable/ObservableKinematic.h>
-#include <partons/beans/observable/ObservableResult.h>
 #include <partons/beans/parton_distribution/PartonDistribution.h>
 #include <partons/beans/parton_distribution/QuarkDistribution.h>
 #include <partons/beans/PerturbativeQCDOrderType.h>
@@ -28,7 +24,6 @@
 #include <partons/services/GPDService.h>
 #include <partons/services/ObservableService.h>
 #include <partons/ServiceObjectRegistry.h>
-#include <partons/utils/type/PhysicalType.h>
 #include <QtCore/qcoreapplication.h>
 #include <stddef.h>
 #include <cmath>
@@ -48,40 +43,37 @@
 
 // x
 const double c_X = 0.1;
-//const size_t c_nX = 100;
-const size_t c_nX = 200;
+const size_t c_nX = 100;
 const std::pair<double, double> c_rangeX = std::make_pair(-0.95, 0.95);
 
 // xi
 const double c_Xi = 0.2;
-//const size_t c_nXi = 100;
-const size_t c_nXi = 200;
+const size_t c_nXi = 100;
 const std::pair<double, double> c_rangeXi = std::make_pair(1.E-6, 0.95);
 
 // t
 const double c_TAbs = 0.3;
-//const size_t c_nTAbs = 100;
-const size_t c_nTAbs = 200;
+const size_t c_nTAbs = 100;
 const std::pair<double, double> c_rangeTAbs = std::make_pair(0.1, 0.5);
 
 // xB
 const double c_Xb = 0.4;
-const size_t c_nXb = 200;
+const size_t c_nXb = 100;
 const std::pair<double, double> c_rangeXb = std::make_pair(1.E-6, 0.95);
 
 // Q2 (we assume Q2 = muF2 = muR2)
 const double c_Q2 = 2.;
-const size_t c_nQ2 = 200;
+const size_t c_nQ2 = 100;
 const std::pair<double, double> c_rangeQ2 = std::make_pair(1., 10.);
 
 // E
 const double c_E = 11.;
-const size_t c_nE = 200;
+const size_t c_nE = 10;
 const std::pair<double, double> c_rangeE = std::make_pair(1., 200.);
 
 // phi
 const double c_Phi = M_PI / 2.;
-const size_t c_nPhi = 200;
+const size_t c_nPhi = 10;
 const std::pair<double, double> c_rangePhi = std::make_pair(0., 2 * M_PI);
 
 /*
@@ -92,12 +84,19 @@ double getValue(const size_t i, const size_t n,
         const std::pair<double, double>& range, const bool isLog) {
 
     if (isLog) {
+        /*double step = (log10(range.second) - log10(range.first))
+                      / double(n);
+        double value = step*0.5 + i * step;
+        return pow(10.0,value);*/
         return pow(10.,
                 log10(range.first)
-                        + i * (log10(range.second) - log10(range.first))
+                        + (i+1) * (log10(range.second) - log10(range.first))
                                 / double(n));
     } else {
-        return range.first + i * (range.second - range.first) / double(n);
+      // Changed by Gagik.
+        double step = (range.second - range.first) / double(n);
+        return 0.5*step + i*step;
+        //return range.first + i * (range.second - range.first) / double(n);
     }
 }
 
@@ -241,13 +240,14 @@ int main(int argc, char** argv) {
         // Create Observable
         PARTONS::Observable* pObservable[3];
 
+        for (size_t i = 0; i < 3; i++)
+            pObservable[i] = 0;
+
         if (std::string(argv[1]) == "OBS_ALU") {
 
             pObservable[0] =
                     PARTONS::Partons::getInstance()->getModuleObjectFactory()->newObservable(
                             PARTONS::DVCSAulMinus::classId);
-            pObservable[1] = 0;
-            pObservable[2] = 0;
 
             pObservable[0]->setProcessModule(pProcessModule);
         }
@@ -293,8 +293,9 @@ int main(int argc, char** argv) {
         if (std::string(argv[1]) == "GPDGK16Numerical"
                 || std::string(argv[1]) == "GPDMMS13") {
 
-            // Kinematics
-            PARTONS::List<PARTONS::GPDKinematic> gpdKinematics;
+            //counter
+            size_t counterI = 0;
+            size_t counterN = (c_nX + 1) * (c_nXi + 1) * (c_nTAbs + 1);
 
             //loop over x
             for (size_t iX = 0; iX <= c_nX; iX++) {
@@ -312,29 +313,37 @@ int main(int argc, char** argv) {
                         double thisTAbs = getValue(iTAbs, c_nTAbs, c_rangeTAbs,
                                 false);
 
-                        //add
-                        gpdKinematics.add(
-                                PARTONS::GPDKinematic(thisX, thisXi,
-                                        -1 * thisTAbs, c_Q2, c_Q2));
+                        // Run computation
+                        PARTONS::GPDResult gpdResult =
+                                pGPDService->computeGPDModel(
+                                        PARTONS::GPDKinematic(thisX, thisXi,
+                                                -1 * thisTAbs, c_Q2, c_Q2),
+                                        pGPDModule);
+
+                        // Write to file
+                        outputFile << thisX << "\t" << thisXi << "\t"
+                                << thisTAbs << "\t"
+                                << gpdResult.getPartonDistribution(
+                                        PARTONS::GPDType::H).getQuarkDistribution(
+                                        PARTONS::QuarkFlavor::UP).getQuarkDistribution()
+                                << std::endl;
+
+                        // Counter
+                        counterI++;
+
+                        if (counterI % (counterN / 10) == 0
+                                || counterI == counterN) {
+                            PARTONS::Partons::getInstance()->getLoggerManager()->info(
+                                    "main", __func__,
+                                    ElemUtils::Formatter()
+                                            << "Already computed: "
+                                            << 100 * counterI / counterN
+                                            << "%");
+                        }
                     }
                 }
             }
 
-            // Run computation
-            PARTONS::List<PARTONS::GPDResult> gpdResult =
-                    pGPDService->computeManyKinematicOneModel(gpdKinematics,
-                            pGPDModule);
-
-            // Save output
-            for (size_t i = 0; i < gpdResult.size(); i++) {
-                outputFile << gpdResult[i].getKinematic().getX() << "\t"
-                        << gpdResult[i].getKinematic().getXi() << "\t"
-                        << fabs(gpdResult[i].getKinematic().getT()) << "\t"
-                        << gpdResult[i].getPartonDistribution(
-                                PARTONS::GPDType::H).getQuarkDistribution(
-                                PARTONS::QuarkFlavor::UP).getQuarkDistribution()
-                        << std::endl;
-            }
         }
 
         // *******************
@@ -343,53 +352,60 @@ int main(int argc, char** argv) {
 
         if (std::string(argv[1]) == "CFF") {
 
-            // Kinematics
-            PARTONS::List<PARTONS::DVCSConvolCoeffFunctionKinematic> cffKinematics;
+            //counter
+            size_t counterI = 0;
+            size_t counterN = (c_nXi + 1) * (c_nTAbs + 1) * (c_nQ2 + 1);
 
             //loop over xi
-            for (size_t iXi = 0; iXi <= c_nXi; iXi++) {
+            for (size_t iXi = 0; iXi < c_nXi; iXi++) {
 
                 double thisXi = getValue(iXi, c_nXi, c_rangeXi, true);
 
                 //loop over t
-                for (size_t iTAbs = 0; iTAbs <= c_nTAbs; iTAbs++) {
+                for (size_t iTAbs = 0; iTAbs < c_nTAbs; iTAbs++) {
 
                     double thisTAbs = getValue(iTAbs, c_nTAbs, c_rangeTAbs,
                             false);
 
                     //loop over Q2
-                    for (size_t iQ2 = 0; iQ2 <= c_nQ2; iQ2++) {
+                    for (size_t iQ2 = 0; iQ2 < c_nQ2; iQ2++) {
 
                         double thisQ2 = getValue(iQ2, c_nQ2, c_rangeQ2, true);
 
-                        //add
-                        cffKinematics.add(
-                                PARTONS::DVCSConvolCoeffFunctionKinematic(
-                                        thisXi, -1 * thisTAbs, thisQ2, thisQ2,
-                                        thisQ2));
+                        // Run computation
+                        PARTONS::DVCSConvolCoeffFunctionResult ccfResult =
+                                pDVCSConvolCoeffFunctionService->computeForOneCCFModel(
+                                        PARTONS::DVCSConvolCoeffFunctionKinematic(
+                                                thisXi, -1 * thisTAbs, thisQ2,
+                                                thisQ2, thisQ2), pDVCSCFFModel);
+
+                        // Write to file
+                        outputFile << thisXi << "\t" << thisTAbs << "\t"
+                                << thisQ2 << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::H).imag() << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::H).real() << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::Ht).imag() << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::Ht).real() << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::E).imag() << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::E).real() << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::Et).imag() << "\t"
+                                << ccfResult.getResult(PARTONS::GPDType::Et).real()
+                                << std::endl;
+
+                        // Counter
+                        counterI++;
+
+                        if (counterI % (counterN / 10) == 0
+                                || counterI == counterN) {
+                            PARTONS::Partons::getInstance()->getLoggerManager()->info(
+                                    "main", __func__,
+                                    ElemUtils::Formatter()
+                                            << "Already computed: "
+                                            << 100 * counterI / counterN
+                                            << "%");
+                        }
                     }
                 }
-            }
-
-            // Run computation
-            PARTONS::List<PARTONS::DVCSConvolCoeffFunctionResult> ccfResult =
-                    pDVCSConvolCoeffFunctionService->computeForOneCCFModelAndManyKinematics(
-                            cffKinematics, pDVCSCFFModel);
-
-            // Save output
-            for (size_t i = 0; i < ccfResult.size(); i++) {
-                outputFile << ccfResult[i].getKinematic().getXi() << "\t"
-                        << fabs(ccfResult[i].getKinematic().getT()) << "\t"
-                        << ccfResult[i].getKinematic().getQ2() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::H).imag() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::H).real() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::Ht).imag() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::Ht).real() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::E).imag() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::E).real() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::Et).imag() << "\t"
-			   << ccfResult[i].getResult(PARTONS::GPDType::Et).real()
-                        << std::endl;
             }
         }
 
@@ -399,8 +415,9 @@ int main(int argc, char** argv) {
 
         if (std::string(argv[1]) == "OBS_ALU") {
 
-            // Kinematics
-            PARTONS::List<PARTONS::ObservableKinematic> obsKinematics;
+            //counter
+            size_t counterI = 0;
+            size_t counterN = (c_nXb + 1) * (c_nTAbs + 1) * (c_nPhi + 1);
 
             //loop over xB
             for (size_t iXb = 0; iXb <= c_nXb; iXb++) {
@@ -424,25 +441,32 @@ int main(int argc, char** argv) {
                         double thisPhi = getValue(iPhi, c_nPhi, c_rangePhi,
                                 false);
 
-                        //add
-                        obsKinematics.add(
-                                PARTONS::ObservableKinematic(thisXb,
-                                        -1 * thisTAbs, c_Q2, c_E, thisPhi));
+                        // Run computation
+                        PARTONS::ObservableResult obsResult =
+                                pObservableService->computeObservable(
+                                        PARTONS::ObservableKinematic(thisXb,
+                                                -1 * thisTAbs, c_Q2, c_E,
+                                                thisPhi), pObservable[0]);
+
+                        // Write to file
+                        outputFile << thisXb << "\t" << thisTAbs << "\t"
+                                << thisPhi << "\t" << obsResult.getValue()
+                                << std::endl;
+
+                        // Counter
+                        counterI++;
+
+                        if (counterI % (counterN / 10) == 0
+                                || counterI == counterN) {
+                            PARTONS::Partons::getInstance()->getLoggerManager()->info(
+                                    "main", __func__,
+                                    ElemUtils::Formatter()
+                                            << "Already computed: "
+                                            << 100 * counterI / counterN
+                                            << "%");
+                        }
                     }
                 }
-            }
-
-            // Run computation
-            PARTONS::List<PARTONS::ObservableResult> obsResult =
-                    pObservableService->computeManyKinematicOneModel(
-                            obsKinematics, pObservable[0]);
-
-            // Save output
-            for (size_t i = 0; i < obsResult.size(); i++) {
-                outputFile << obsResult[i].getKinematic().getXB() << "\t"
-                        << fabs(obsResult[i].getKinematic().getT()) << "\t"
-                        << obsResult[i].getKinematic().getPhi().getValue()
-                        << "\t" << obsResult[i].getValue() << std::endl;
             }
         }
 
@@ -452,8 +476,9 @@ int main(int argc, char** argv) {
 
         if (std::string(argv[1]) == "OBS_CS") {
 
-            // Kinematics
-            PARTONS::List<PARTONS::ObservableKinematic> obsKinematics;
+            //counter
+            size_t counterI = 0;
+            size_t counterN = (c_nXb + 1) * (c_TAbs + 1) * 3;
 
             //loop over xB
             for (size_t iXb = 0; iXb <= c_nXb; iXb++) {
@@ -469,32 +494,40 @@ int main(int argc, char** argv) {
 
                     double thisPhi = getValue(iPhi, c_nPhi, c_rangePhi, false);
 
-                    //add
-                    obsKinematics.add(
-                            PARTONS::ObservableKinematic(thisXb, -1 * c_TAbs,
-                                    c_Q2, c_E, thisPhi));
+                    PARTONS::ObservableResult obsResult[3];
+
+                    for (size_t i = 0; i < 3; i++) {
+
+                        // Run computation
+                        obsResult[i] = pObservableService->computeObservable(
+                                PARTONS::ObservableKinematic(thisXb,
+                                        -1 * c_TAbs, c_Q2, c_E, thisPhi),
+                                pObservable[i]);
+
+                        // Write to file
+                        outputFile << thisXb << "\t" << c_TAbs << "\t" << i
+                                << "\t" << obsResult[i].getValue() << std::endl;
+
+                        // Counter
+                        counterI++;
+
+                        if (counterI % (counterN / 10) == 0
+                                || counterI == counterN) {
+                            PARTONS::Partons::getInstance()->getLoggerManager()->info(
+                                    "main", __func__,
+                                    ElemUtils::Formatter()
+                                            << "Already computed: "
+                                            << 100 * counterI / counterN
+                                            << "%");
+                        }
+                    }
                 }
             }
-
-            // Run computation
-            PARTONS::List<PARTONS::ObservableResult> obsResult[3];
-
-            for (size_t i = 0; i < 3; i++) {
-
-                obsResult[i] = pObservableService->computeManyKinematicOneModel(
-                        obsKinematics, pObservable[i]);
-
-                for (size_t j = 0; j < obsResult[i].size(); j++) {
-                    outputFile << obsResult[i][j].getKinematic().getXB() << "\t"
-                            << obsResult[i][j].getKinematic().getPhi().getValue()
-                            << "\t" << i << "\t" << obsResult[i][j].getValue()
-                            << std::endl;
-                }
-            }
-
-            // Save output
-
         }
+
+        PARTONS::Partons::getInstance()->getLoggerManager()->info("main",
+                __func__,
+                ElemUtils::Formatter() << "Already computed: Finished!");
 
         // Close file
         outputFile.flush();
@@ -524,10 +557,11 @@ int main(int argc, char** argv) {
 
         for (size_t i = 0; i < 3; i++) {
 
-            if (pObservable[i] != 0)
+            if (pObservable[i] != 0) {
                 PARTONS::Partons::getInstance()->getModuleObjectFactory()->updateModulePointerReference(
                         pObservable[i], 0);
-            pObservable[i] = 0;
+                pObservable[i] = 0;
+            }
         }
 
     }
